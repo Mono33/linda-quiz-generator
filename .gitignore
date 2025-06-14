@@ -2,8 +2,12 @@
 *
 
 # But include these specific files
-!README_LINDA_QUIZ.md
+!README.md
 !linda_test_eval2.py
-!requirements.txt
+!linda_test_eval3.py
+!requirements_ollama.txt
+!requirements_openrouter.txt
 !Dockerfile
-!.gitignore 
+!.gitignore
+!docs/
+!docs/** 
