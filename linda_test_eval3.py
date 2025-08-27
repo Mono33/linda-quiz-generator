@@ -323,7 +323,7 @@ Ogni domanda deve:
 - Testare la comprensione specifica degli elementi 5W
 - Avere risposte chiare e verificabili dal testo
 
-  ⚠️ Le domande devono essere sempre diverse, originali, ma adattate al contenuto specifico del testo e al tipo di annotazioni fornite.
+  ⚠️ Le domande devono essere originali e dinamiche, ma sempre adattate al contenuto specifico del testo e al tipo di annotazioni fornite.
 
 
 FORMATO RICHIESTO:
@@ -478,7 +478,15 @@ class FeedbackGenerator:
         self.openrouter_client = OpenRouterClient()
 
     def generate_feedback(
-        self, question: str, correct_answer: str, student_answer: str
+        self, 
+        question: str, 
+        correct_answer: str, 
+        student_answer: str,
+        annotations: Dict[str, List[str]] = None,
+        original_text: str = None,
+        tag_type: str = None,
+        question_type: str = "open_ended",
+        options: List[Dict[str, str]] = None
     ) -> str:
         """
         Generate feedback for a student's answer.
@@ -487,6 +495,11 @@ class FeedbackGenerator:
             question: The quiz question
             correct_answer: The correct answer
             student_answer: The student's answer
+            annotations: Dictionary with tag categories as keys and lists of text snippets
+            original_text: The original text used for quiz generation
+            tag_type: Type of annotations used (5W, Thesis, Argument, Connective)
+            question_type: Type of question ("open_ended" or "multiple_choice")
+            options: List of options for multiple choice questions
 
         Returns:
             Generated feedback as a string
@@ -494,23 +507,74 @@ class FeedbackGenerator:
         if not self.openrouter_client.is_available():
             return "OpenRouter API non disponibile per generare feedback."
 
-        prompt = f"""Sei un tutor educativo che fornisce feedback costruttivo agli studenti.
+        # Route to appropriate feedback method
+        if question_type == "multiple_choice":
+            return self._generate_mc_feedback(
+                question, correct_answer, student_answer, options, 
+                annotations, original_text, tag_type
+            )
+        else:
+            return self._generate_oe_feedback(
+                question, correct_answer, student_answer, 
+                annotations, original_text, tag_type
+            )
+
+    def _generate_oe_feedback(
+        self, 
+        question: str, 
+        correct_answer: str, 
+        student_answer: str,
+        annotations: Dict[str, List[str]] = None,
+        original_text: str = None,
+        tag_type: str = None
+    ) -> str:
+        """Generate feedback for open-ended questions with annotation support."""
+        
+        # Format annotations for the prompt
+        formatted_annotations = self._format_annotations(annotations, tag_type)
+        
+        # Get relevant text excerpt (first 500 chars as context)
+        text_context = original_text[:500] + "..." if original_text and len(original_text) > 500 else original_text or ""
+        
+        prompt = f"""Sei un tutor educativo che fornisce feedback basato su testi annotati. Il tuo obiettivo è guidare lo studente verso una comprensione più precisa attraverso riferimenti specifici al testo e alle annotazioni.
+
+CONTESTO:
+- Testo annotato con elementi specifici identificati ({tag_type})
+- Domanda di comprensione che richiede analisi testuale
+- Annotazioni di riferimento disponibili per guidare la comprensione
 
 DOMANDA: {question}
 
-RISPOSTA CORRETTA: {correct_answer}
+RISPOSTA ATTESA: {correct_answer}
 
 RISPOSTA DELLO STUDENTE: {student_answer}
 
-ISTRUZIONI:
-Fornisci un feedback educativo in italiano che:
-1. Valuti la risposta dello studente
-2. Evidenzi gli aspetti corretti (se presenti)
-3. Spieghi gli errori in modo costruttivo
-4. Fornisca suggerimenti per migliorare
-5. Sia incoraggiante e supportivo
+ANNOTAZIONI DI RIFERIMENTO ({tag_type}):
+{formatted_annotations}
 
-Il feedback deve essere specifico, chiaro e utile per l'apprendimento.
+CONTESTO TESTUALE:
+{text_context}
+
+ISTRUZIONI:
+Fornisci feedback che segua ESATTAMENTE questa struttura:
+
+**✅ ASPETTI POSITIVI:**
+[Identifica e conferma elementi corretti nella risposta, anche se parziali]
+
+**🎯 SUGGERIMENTO PER MIGLIORARE:**
+[UN solo suggerimento specifico che rimandi a una parte precisa del testo annotato o a una specifica annotazione {tag_type}]
+
+**🤔 DOMANDA METACOGNITIVA:**
+[Poni UNA domanda che guidi lo studente a riflettere su una specifica sezione del testo o annotazione, es: "Rileggi la parte del testo dove si parla di... Cosa ti suggerisce questo dettaglio riguardo a...?" oppure "Osserva l'annotazione '{tag_type}' che evidenzia... Come si collega questo elemento alla tua risposta?"]
+
+CRITERI:
+- Tono professionale, incoraggiante ma non eccessivamente entusiasta
+- Linguaggio conciso e chiaro
+- Riferimenti specifici alle annotazioni {tag_type} fornite
+- Evita terminologia troppo tecnica
+- Inizia sempre con il positivo
+- Massimo 3-4 frasi per sezione
+- Collega sempre i suggerimenti agli elementi annotati nel testo
 
 FEEDBACK:"""
 
@@ -520,6 +584,96 @@ FEEDBACK:"""
             temperature=0.7,
             max_tokens=1024
         )
+
+    def _generate_mc_feedback(
+        self, 
+        question: str, 
+        correct_answer: str, 
+        student_answer: str,
+        options: List[Dict[str, str]] = None,
+        annotations: Dict[str, List[str]] = None,
+        original_text: str = None,
+        tag_type: str = None
+    ) -> str:
+        """Generate feedback for multiple choice questions with annotation support."""
+        
+        # Format options for display
+        formatted_options = "\n".join([f"{opt['letter']}) {opt['text']}" for opt in options]) if options else ""
+        
+        # Get correct and student answer texts
+        correct_answer_text = ""
+        student_answer_text = ""
+        if options:
+            correct_answer_text = next((opt["text"] for opt in options if opt["letter"] == correct_answer), "")
+            student_answer_text = next((opt["text"] for opt in options if opt["letter"] == student_answer), "")
+        
+        # Format annotations for the prompt
+        formatted_annotations = self._format_annotations(annotations, tag_type)
+        
+        # Get relevant text excerpt
+        text_context = original_text[:500] + "..." if original_text and len(original_text) > 500 else original_text or ""
+        
+        prompt = f"""Sei un tutor educativo che fornisce feedback per domande a scelta multipla basate su testi annotati. Il tuo obiettivo è chiarire incomprensioni rimandando alle parti rilevanti del testo annotato.
+
+DOMANDA: {question}
+
+OPZIONI:
+{formatted_options}
+
+RISPOSTA CORRETTA: {correct_answer}) {correct_answer_text}
+RISPOSTA DELLO STUDENTE: {student_answer}) {student_answer_text}
+
+ANNOTAZIONI DI RIFERIMENTO ({tag_type}):
+{formatted_annotations}
+
+CONTESTO TESTUALE:
+{text_context}
+
+ISTRUZIONI:
+Se la risposta è CORRETTA, fornisci una breve conferma positiva.
+Se la risposta è SBAGLIATA, fornisci feedback seguendo questa struttura:
+
+**✅ RICONOSCIMENTO:**
+[Breve riconoscimento dell'impegno o logica nella scelta, se applicabile]
+
+**🎯 CHIARIMENTO:**
+[Spiega perché la risposta corretta è giusta, rimandando alla specifica parte del testo annotato che contiene l'informazione chiave. Fai riferimento alle annotazioni {tag_type} pertinenti]
+
+**📍 RIFERIMENTO TESTUALE:**
+[Indica la sezione precisa del testo e l'annotazione correlata che porta alla risposta corretta, es: "Rileggi il paragrafo dove si menziona... Nota come l'annotazione '{tag_type}' evidenzia..." oppure "Osserva l'elemento annotato come '{tag_type}' che indica..."]
+
+CRITERI:
+- Tono professionale e incoraggiante
+- Linguaggio conciso, usa bullet points se necessario
+- Riferimenti diretti alle annotazioni {tag_type} specifiche
+- Evita spiegazioni troppo lunghe
+- Collega sempre la risposta corretta a elementi testuali precisi e alle annotazioni
+- Massimo 2-3 frasi per sezione
+
+FEEDBACK:"""
+
+        return self.openrouter_client.generate(
+            model=self.model_name,
+            prompt=prompt,
+            temperature=0.7,
+            max_tokens=1024
+        )
+
+    def _format_annotations(self, annotations: Dict[str, List[str]], tag_type: str) -> str:
+        """Format annotations for display in prompts."""
+        if not annotations:
+            return "Nessuna annotazione disponibile"
+        
+        formatted = []
+        for tag, items in annotations.items():
+            # Limit items to avoid overly long prompts
+            limited_items = items[:3] if len(items) > 3 else items
+            item_text = ", ".join(limited_items)
+            if len(items) > 3:
+                item_text += f" (e altri {len(items) - 3})"
+            formatted.append(f"- {tag}: {item_text}")
+        
+        return "\n".join(formatted)
 
     def _generate_example_feedback(
         self, question: str, correct_answer: str, student_answer: str
@@ -735,9 +889,21 @@ MOTIVAZIONE: [Breve spiegazione]
             "motivation": motivation
         }
 
-    def _format_annotations(self, annotations):
-        """Format annotations for prompt."""
-        return "\n".join([f"- {tag}: {', '.join(items)}" for tag, items in annotations.items()])
+    def _format_annotations(self, annotations: Dict[str, List[str]], tag_type: str) -> str:
+        """Format annotations for display in prompts."""
+        if not annotations:
+            return "Nessuna annotazione disponibile"
+        
+        formatted = []
+        for tag, items in annotations.items():
+            # Limit items to avoid overly long prompts
+            limited_items = items[:3] if len(items) > 3 else items
+            item_text = ", ".join(limited_items)
+            if len(items) > 3:
+                item_text += f" (e altri {len(items) - 3})"
+            formatted.append(f"- {tag}: {item_text}")
+        
+        return "\n".join(formatted)
         
     def show_quiz_editor(self):
         """Display the interactive quiz editor."""
@@ -1310,23 +1476,112 @@ MOTIVAZIONE: [Breve spiegazione]
                     mime="application/json",
                 )
 
-            # Student answer and feedback section
-            st.header("Test Student Answer")
-            st.markdown(
-                "#### Enter a student answer to see feedback: domanda a risposta aperta"
-            )
+            # Quick load from generated quiz
+            if st.session_state.get("structured_quiz"):
+                with st.expander("🚀 Student Feedback Mode: Load from Generated Quiz"):
+                    st.write("Select a question from your generated quiz to test feedback:")
+                    
+                    # Create display options for quiz questions
+                    quiz_options = []
+                    for i, q in enumerate(st.session_state["structured_quiz"]):
+                        q_type_display = "MC" if q["type"] == "multiple_choice" else "OE"
+                        display_text = f"Q{q['number']} ({q_type_display}): {q['text'][:60]}..."
+                        quiz_options.append((i, display_text, q))
+                    
+                    selected_quiz_q = st.selectbox(
+                        "Choose question:",
+                        options=quiz_options,
+                        format_func=lambda x: x[1],
+                        key="quiz_question_selector"
+                    )
+                    
+                    if st.button("Load Selected Question"):
+                        selected_q = selected_quiz_q[2]
+                        
+                        # Update session state with selected question data
+                        st.session_state["loaded_question"] = selected_q["text"]
+                        st.session_state["loaded_correct_answer"] = selected_q["correct_answer"]
+                        st.session_state["loaded_question_type"] = "Multiple Choice" if selected_q["type"] == "multiple_choice" else "Open-Ended"
+                        
+                        if selected_q["type"] == "multiple_choice":
+                            st.session_state["loaded_options"] = selected_q["options"]
+                        
+                        st.success(f"Loaded Q{selected_q['number']} - Now fill in the student answer below!")
+                        st.rerun()
 
-            question = st.text_area(
-                "Question",
-                "",
-            )
-            correct_answer = st.text_area(
-                "Correct Answer",
-                "",
-            )
-            student_answer = st.text_area("Student Answer", "")
+            # Pre-populate fields if question was loaded from quiz
+            if "loaded_question" in st.session_state:
+                question = st.text_area(
+                    "Question",
+                    value=st.session_state.get("loaded_question", ""),
+                    help="Enter the question text (loaded from quiz)"
+                )
+                
+                # Set question type from loaded data
+                if "loaded_question_type" in st.session_state:
+                    default_type_index = 0 if st.session_state["loaded_question_type"] == "Open-Ended" else 1
+                    question_type = st.radio(
+                        "Question Type:",
+                        ["Open-Ended", "Multiple Choice"],
+                        index=default_type_index,
+                        horizontal=True,
+                        help="Question type (loaded from quiz)"
+                    )
+            else:
+                question = st.text_area(
+                    "Question",
+                    "",
+                    help="Enter the question text"
+                )
+                
+                # Question type selection
+                question_type = st.radio(
+                    "Question Type:",
+                    ["Open-Ended", "Multiple Choice"],
+                    horizontal=True,
+                    help="Select the type of question you want to test feedback for"
+                )
 
-            if st.button("Generate Feedback") and student_answer:
+            if question_type == "Multiple Choice":
+                st.write("**Question Options:**")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    option_a = st.text_input("A)", placeholder="Option A text", key="opt_a")
+                    option_c = st.text_input("C)", placeholder="Option C text", key="opt_c")
+                
+                with col2:
+                    option_b = st.text_input("B)", placeholder="Option B text", key="opt_b")
+                    option_d = st.text_input("D)", placeholder="Option D text", key="opt_d")
+                
+                # Create options list for the feedback system
+                options = [
+                    {"letter": "A", "text": option_a},
+                    {"letter": "B", "text": option_b},
+                    {"letter": "C", "text": option_c},
+                    {"letter": "D", "text": option_d}
+                ]
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    correct_answer = st.radio("Correct Answer:", ["A", "B", "C", "D"], key="correct_mc")
+                with col2:
+                    student_answer = st.radio("Student Selected:", ["A", "B", "C", "D"], key="student_mc")
+                    
+            else:  # Open-Ended
+                correct_answer = st.text_area(
+                    "Correct Answer",
+                    "",
+                    help="Enter the expected correct answer"
+                )
+                student_answer = st.text_area(
+                    "Student Answer", 
+                    "",
+                    help="Enter the student's actual answer"
+                )
+                options = None
+
+            if st.button("Generate Feedback") and student_answer and question:
                 # Update feedback generator with current model settings
                 model_name = st.session_state.get("model_name", "mistralai/mistral-7b-instruct")
                 self.feedback_generator = FeedbackGenerator(model_name)
@@ -1334,8 +1589,18 @@ MOTIVAZIONE: [Breve spiegazione]
                 # Log which model is being used
                 st.info(f"Using model: {model_options.get(model_name, model_name)} for feedback generation")
 
+                # Determine question type for the API
+                api_question_type = "multiple_choice" if question_type == "Multiple Choice" else "open_ended"
+                
                 feedback = self.feedback_generator.generate_feedback(
-                    question, correct_answer, student_answer
+                    question, 
+                    correct_answer, 
+                    student_answer,
+                    annotations=st.session_state.get("grouped_annotations"),
+                    original_text=st.session_state.get("extracted_text"),
+                    tag_type=st.session_state.get("tag_type", "5W"),
+                    question_type=api_question_type,
+                    options=options if question_type == "Multiple Choice" else None
                 )
                 st.info(feedback)
 

@@ -28,6 +28,7 @@ AI-powered quiz generation tool for educational content based on annotated texts
 ## 🛠️ Quick Start
 
 ### OpenRouter Version (Recommended)
+## app deployata: https://share.streamlit.io/app/mono33-linda-quiz-generator-linda-test-eval3/
 ```bash
 pip install -r requirements_openrouter.txt
 export OPENROUTER_API_KEY="your_key_here"
