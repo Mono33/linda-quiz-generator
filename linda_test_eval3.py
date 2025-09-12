@@ -536,45 +536,45 @@ class FeedbackGenerator:
         # Get relevant text excerpt (first 500 chars as context)
         text_context = original_text[:500] + "..." if original_text and len(original_text) > 500 else original_text or ""
         
-        prompt = f"""Sei un tutor educativo che fornisce feedback basato su testi annotati. Il tuo obiettivo è guidare lo studente verso una comprensione più precisa attraverso riferimenti specifici al testo e alle annotazioni.
+        prompt = f"""Sei un tutor educativo che fornisce feedback basato su testi annotati. Il tuo obiettivo è guidare lo studente verso una comprensione più precisa attraverso riferimenti specifici al testo e alle annotazioni ({tag_type}). Rispondi SOLO in italiano.
 
 CONTESTO:
 - Testo annotato con elementi specifici identificati ({tag_type})
-- Domanda di comprensione che richiede analisi testuale
+- Domanda di comprensione che richiede analisi del testo
 - Annotazioni di riferimento disponibili per guidare la comprensione
+- CORRECT ANSWER (modello) di riferimento e STUDENT ANSWER (da valutare)
 
 DOMANDA: {question}
 
-RISPOSTA ATTESA: {correct_answer}
+RISPOSTA ATTESA (modello): {correct_answer}
 
-RISPOSTA DELLO STUDENTE: {student_answer}
+RISPOSTA DELLO STUDENTE (da valutare): {student_answer}
 
 ANNOTAZIONI DI RIFERIMENTO ({tag_type}):
 {formatted_annotations}
 
-CONTESTO TESTUALE:
+CONTESTO TESTUALE (estratto): 
 {text_context}
 
-ISTRUZIONI:
-Fornisci feedback che segua ESATTAMENTE questa struttura:
+ISTRUZIONI DI OUTPUT (OBBLIGATORIE):
+- Produci ESATTAMENTE tre sezioni con i seguenti titoli (usa questi titoli e nessun altro).
+- In ogni sezione scrivi frasi brevi (max 3 o 4 frasi). Totale massimo ~120 parole.
+- Fai SEMPRE riferimento a un’annotazione {tag_type} specifica e, se utile, cita al massimo UNA breve citazione dal testo (≤15 parole) tra virgolette.
+- Non confondere mai la STUDENT ANSWER con la CORRECT ANSWER. Valuti SOLO la STUDENT ANSWER, citandola come tale.
+- Se la STUDENT ANSWER è vuota, fuori tema o < 5 parole, segnala brevemente la criticità e fornisci un micro-passo per riprovare (rimandando al testo/annotazione).
+- Mantieni tono professionale, incoraggiante ma non necessariamente entusiasta. 
+- Linguaggio conciso, corretto e privo di errori grammaticali.
+- Inizia sempre con il positivo.
+- Non aggiungere testo prima/dopo le tre sezioni. Nessuna firma, nessuna spiegazione extra.
 
 **✅ ASPETTI POSITIVI:**
-[Identifica e conferma elementi corretti nella risposta, anche se parziali]
+[Conferma uno o due elementi corretti presenti nella STUDENT ANSWER; se parziali, dillo. Indica l’annotazione {tag_type} pertinente e, se utile, una breve citazione.]
 
 **🎯 SUGGERIMENTO PER MIGLIORARE:**
-[UN solo suggerimento specifico che rimandi a una parte precisa del testo annotato o a una specifica annotazione {tag_type}]
+[Un solo suggerimento chiaro e operativo, collegato a una parte precisa del testo o a un’annotazione {tag_type} (nomina il tag, es. “Why: …”). Indica dove rileggere.]
 
 **🤔 DOMANDA METACOGNITIVA:**
-[Poni UNA domanda che guidi lo studente a riflettere su una specifica sezione del testo o annotazione, es: "Rileggi la parte del testo dove si parla di... Cosa ti suggerisce questo dettaglio riguardo a...?" oppure "Osserva l'annotazione '{tag_type}' che evidenzia... Come si collega questo elemento alla tua risposta?"]
-
-CRITERI:
-- Tono professionale, incoraggiante ma non eccessivamente entusiasta
-- Linguaggio conciso e chiaro
-- Riferimenti specifici alle annotazioni {tag_type} fornite
-- Evita terminologia troppo tecnica
-- Inizia sempre con il positivo
-- Massimo 3-4 frasi per sezione
-- Collega sempre i suggerimenti agli elementi annotati nel testo
+[Una sola domanda breve che rimandi a una sezione del testo o a un’annotazione {tag_type}; es.: “Rileggi il passaggio su ‘…’ (tag: Why). In che modo questo dettaglio sostiene/contraddice la tua risposta?”]
 
 FEEDBACK:"""
 
@@ -613,7 +613,7 @@ FEEDBACK:"""
         # Get relevant text excerpt
         text_context = original_text[:500] + "..." if original_text and len(original_text) > 500 else original_text or ""
         
-        prompt = f"""Sei un tutor educativo che fornisce feedback per domande a scelta multipla basate su testi annotati. Il tuo obiettivo è chiarire incomprensioni rimandando alle parti rilevanti del testo annotato.
+        prompt = f"""Sei un tutor educativo che fornisce feedback per domande a scelta multipla basate su testi annotati. Il tuo obiettivo è chiarire incomprensioni rimandando con precisione alle annotazioni ({tag_type}) e al testo.
 
 DOMANDA: {question}
 
@@ -629,33 +629,42 @@ ANNOTAZIONI DI RIFERIMENTO ({tag_type}):
 CONTESTO TESTUALE:
 {text_context}
 
-ISTRUZIONI:
-Se la risposta è CORRETTA, fornisci una breve conferma positiva.
-Se la risposta è SBAGLIATA, fornisci feedback seguendo questa struttura:
+ISTRUZIONI OPERATIVE (seguile alla lettera):
+- Se la risposta dello studente è CORRETTA: scrivi UNA sola frase di conferma + un riferimento testuale/annotazione a supporto. Non aggiungere altro.
+- Se la risposta è SBAGLIATA: produci le tre sezioni sottostanti.
+- Non confondere mai STUDENT ANSWER e CORRECT ANSWER: nominale sempre esplicitamente quale stai commentando.
+- Fai SEMPRE un riferimento concreto al testo/annotazioni: o 1 breve citazione tra virgolette (≤ 8 parole) o una parafrasi puntuale + il tag {tag_type}.
+- Se nessuna annotazione è pertinente, dichiaralo e usa il passaggio del testo più vicino.
+- Non ripetere l’intera opzione corretta; spiega il perché in modo conciso.
+- Italiano chiaro, tono professionale e incoraggiante. Niente emoji extra oltre alle intestazioni richieste. Max 2–3 frasi per sezione.
+
+FORMATTO DA RISPETTARE ESATTAMENTE:
+
+[Se CORRETTA → una riga]
+✅ Corretto: [breve conferma + 1 riferimento testuale/annotazione]
+
+[Se SBAGLIATA → le tre sezioni seguenti]
 
 **✅ RICONOSCIMENTO:**
-[Breve riconoscimento dell'impegno o logica nella scelta, se applicabile]
+[Riconosci sinteticamente l’impegno o la logica nella STUDENT ANSWER, se pertinente. 1 frase.]
 
 **🎯 CHIARIMENTO:**
-[Spiega perché la risposta corretta è giusta, rimandando alla specifica parte del testo annotato che contiene l'informazione chiave. Fai riferimento alle annotazioni {tag_type} pertinenti]
+[Spiega in modo conciso perché la CORRECT ANSWER è giusta e in cosa la STUDENT ANSWER è imprecisa. Cita o parafrasa 1 punto del testo e richiama l’annotazione {tag_type}. 1 o 2 frasi.]
 
 **📍 RIFERIMENTO TESTUALE:**
-[Indica la sezione precisa del testo e l'annotazione correlata che porta alla risposta corretta, es: "Rileggi il paragrafo dove si menziona... Nota come l'annotazione '{tag_type}' evidenzia..." oppure "Osserva l'elemento annotato come '{tag_type}' che indica..."]
+[Indica dove trovarlo: “Vedi [citazione ≤8 parole] / vedi annotazione {tag_type} su …”. 1 frase.]
 
-CRITERI:
-- Tono professionale e incoraggiante
-- Linguaggio conciso, usa bullet points se necessario
-- Riferimenti diretti alle annotazioni {tag_type} specifiche
-- Evita spiegazioni troppo lunghe
-- Collega sempre la risposta corretta a elementi testuali precisi e alle annotazioni
-- Massimo 2-3 frasi per sezione
+VINCOLI:
+- Niente contenuti non presenti nel testo/annotazioni.
+- Non elencare di nuovo tutte le opzioni.
+- Se la scelta dello studente è vuota o non A,B,C oppure D, scrivi: “Risposta non valida: seleziona A,B,C oppure D” e chiudi.
 
 FEEDBACK:"""
 
         return self.openrouter_client.generate(
             model=self.model_name,
             prompt=prompt,
-            temperature=0.7,
+            temperature=0.3, #0.7
             max_tokens=1024
         )
 
@@ -1242,11 +1251,9 @@ MOTIVAZIONE: [Breve spiegazione]
             # OpenRouter model selection
             st.subheader("OpenRouter Settings")
             model_options = {
-                "mistralai/mistral-7b-instruct": "Mistral 7B (Recommended)",
-                "anthropic/claude-3-haiku": "Claude 3 Haiku",
+                "mistralai/mistral-7b-instruct": "Mistral 7B",
+                "anthropic/claude-3.5-haiku": "Claude 3.5 Haiku",
                 "openai/gpt-3.5-turbo": "GPT-3.5 Turbo",
-                "meta-llama/llama-2-7b-chat": "Llama 2 7B Chat",
-                "google/gemma-7b-it": "Gemma 7B",
                 "google/gemma-3n-e4b-it:free": "Gemma 3 4B (Free)"
             }
             
