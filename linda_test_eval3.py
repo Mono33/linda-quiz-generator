@@ -1253,7 +1253,10 @@ MOTIVAZIONE: [Breve spiegazione]
             model_options = {
                 "mistralai/mistral-7b-instruct": "Mistral 7B",
                 "anthropic/claude-3.5-haiku": "Claude 3.5 Haiku",
+                "anthropic/claude-3.5-sonnet": "Claude 3.5 Sonnet",
                 "openai/gpt-3.5-turbo": "GPT-3.5 Turbo",
+                "openai/gpt-4o": "GPT-4o",
+                "openai/gpt-4o-mini": "GPT-4o Mini",
                 "google/gemma-3n-e4b-it:free": "Gemma 3 4B (Free)"
             }
             
