@@ -354,6 +354,18 @@ FORMATO RICHIESTO:
 
 NON usare un modello fisso di domande. Crea domande originali che si adattano specificamente al testo fornito.
 NON aggiungere spiegazioni o commenti extra al quiz.
+
+Ruolo lingua (OBBLIGATORIO):
+- Se il testo è in italiano, il quiz generato deve essere in italiano. Se il testo è in inglese, il quiz generato deve essere in inglese.
+- Se il testo è misto, scegli la lingua predominante; se l’equilibrio è incerto, usa l’italiano.
+- NON tradurre i contenuti del testo: il quiz generato deve essere sempre nella lingua originale del testo.
+- NON mescolare lingue all’interno dello stesso quiz.
+- Conserva i nomi propri e le citazioni esattamente come nel testo.
+- Eccezione: mantieni SEMPRE in italiano le etichette di struttura necessarie al sistema:
+  * "[Scelta Multipla]" e "[Risposta Aperta]"
+  * "✅ Risposta corretta:" e "✅ Risposta:"
+  * I marcatori A) B) C) D)
+  Tutto il resto (testo delle domande, opzioni, eventuali frasi) deve essere nella lingua del testo.
 """
 
         return self.openrouter_client.generate(
@@ -567,7 +579,7 @@ ISTRUZIONI DI OUTPUT (OBBLIGATORIE):
 - Inizia sempre con il positivo.
 - Non aggiungere testo prima/dopo le tre sezioni. Nessuna firma, nessuna spiegazione extra.
 
-**✅ ASPETTI POSITIVI:**
+**☀️ ASPETTI POSITIVI:**
 [Conferma uno o due elementi corretti presenti nella STUDENT ANSWER; se parziali, dillo. Indica l’annotazione {tag_type} pertinente e, se utile, una breve citazione.]
 
 **🎯 SUGGERIMENTO PER MIGLIORARE:**
@@ -645,7 +657,7 @@ FORMATTO DA RISPETTARE ESATTAMENTE:
 
 [Se SBAGLIATA → le tre sezioni seguenti]
 
-**✅ RICONOSCIMENTO:**
+**☀️ RICONOSCIMENTO:**
 [Riconosci sinteticamente l’impegno o la logica nella STUDENT ANSWER, se pertinente. 1 frase.]
 
 **🎯 CHIARIMENTO:**
@@ -834,7 +846,7 @@ TESTO:
 {text[:3000]}  # Limit text size to avoid token limits
 
 ANNOTAZIONI ({tag_type}):
-{self._format_annotations(annotations)}
+{self._format_annotations(annotations, tag_type)}
 
 DOMANDA:
 {question["text"]}
@@ -856,7 +868,7 @@ TESTO:
 {text[:3000]}  # Limit text size to avoid token limits
 
 ANNOTAZIONI ({tag_type}):
-{self._format_annotations(annotations)}
+{self._format_annotations(annotations, tag_type)}
 
 DOMANDA:
 {question["text"]}
@@ -955,7 +967,7 @@ MOTIVAZIONE: [Breve spiegazione]
                         st.warning("Some questions haven't been validated. Would you like to validate them now?")
                         col1, col2 = st.columns(2)
                         with col1:
-                            if st.button("Validate All"):
+                            if st.button("Validate All", key="validate_all_btn"):
                                 # Initialize validation results if needed
                                 if "validation_results" not in st.session_state:
                                     st.session_state["validation_results"] = {}
@@ -974,26 +986,76 @@ MOTIVAZIONE: [Breve spiegazione]
                                 st.success("All questions validated!")
                                 st.rerun()  # Show validation results
                         with col2:
-                            if st.button("Save Without Validation"):
-                                # Format the edited quiz back to text
+                            if st.button("Save Without Validation", key="save_wo_val_btn"):
+                                # Renumber before saving to ensure contiguous numbering
+                                for idx, q in enumerate(edited_quiz):
+                                    q["number"] = idx + 1
+                                # Persist both string and structured forms
                                 updated_quiz = format_structured_quiz(edited_quiz)
                                 st.session_state["quiz"] = updated_quiz
                                 st.session_state["structured_quiz"] = edited_quiz
+                                # Mark edited banner
+                                st.session_state["has_edited_quiz"] = True
+                                st.session_state["edited_at"] = time.strftime("%H:%M")
                                 st.session_state["editing_quiz"] = False
                                 st.success("Quiz saved without validation!")
                                 st.rerun()
                     else:
                         # Format the edited quiz back to text
+                        # Renumber before saving
+                        for idx, q in enumerate(edited_quiz):
+                            q["number"] = idx + 1
                         updated_quiz = format_structured_quiz(edited_quiz)
                         st.session_state["quiz"] = updated_quiz
                         st.session_state["structured_quiz"] = edited_quiz
+                        st.session_state["has_edited_quiz"] = True
+                        st.session_state["edited_at"] = time.strftime("%H:%M")
                         st.session_state["editing_quiz"] = False
                         st.success("Quiz saved successfully!")
                         st.rerun()
             with cols[2]:
-                if st.button("Cancel"):
-                    st.session_state["editing_quiz"] = False
-                    st.rerun()
+                # Back with unsaved-changes confirmation
+                if st.button("Back to Quiz", key="back_to_quiz_btn"):
+                    # Detect potentially unsaved validation state
+                    pending_unvalidated = False
+                    for i, q in enumerate(edited_quiz):
+                        if q["text"] != "New question text" and (
+                            "validation_results" not in st.session_state or
+                            i not in st.session_state.get("validation_results", {})
+                        ):
+                            pending_unvalidated = True
+                            break
+                    if pending_unvalidated:
+                        st.session_state["confirm_back_unsaved"] = True
+                    else:
+                        st.session_state["editing_quiz"] = False
+                        st.rerun()
+
+            # Unsaved changes confirmation UI
+            if st.session_state.get("confirm_back_unsaved"):
+                st.warning("You have unsaved changes. Save, discard, or stay on this page?")
+                b1, b2, b3 = st.columns(3)
+                with b1:
+                    if st.button("Save Without Validation", key="confirm_save_wo_val"):
+                        for idx, q in enumerate(edited_quiz):
+                            q["number"] = idx + 1
+                        updated_quiz = format_structured_quiz(edited_quiz)
+                        st.session_state["quiz"] = updated_quiz
+                        st.session_state["structured_quiz"] = edited_quiz
+                        st.session_state["has_edited_quiz"] = True
+                        st.session_state["edited_at"] = time.strftime("%H:%M")
+                        st.session_state["confirm_back_unsaved"] = False
+                        st.session_state["editing_quiz"] = False
+                        st.success("Quiz saved.")
+                        st.rerun()
+                with b2:
+                    if st.button("Discard Changes", key="confirm_discard"):
+                        st.session_state["confirm_back_unsaved"] = False
+                        st.session_state["editing_quiz"] = False
+                        st.rerun()
+                with b3:
+                    if st.button("Stay Here", key="confirm_stay"):
+                        st.session_state["confirm_back_unsaved"] = False
         
         # The actual editor for each question
         for i, question in enumerate(edited_quiz):
@@ -1137,14 +1199,39 @@ MOTIVAZIONE: [Breve spiegazione]
                             st.markdown("**AI Reasoning:**")
                             st.markdown(result["motivation"])
                 
-                # Question removal (DELETE QUESTION BUTTON)
+                # Question removal (DELETE QUESTION BUTTON with confirmation)
+                confirm_flag_key = f"confirm_delete_{i}"
                 if st.button(f"Delete Question {question['number']}", key=f"del_q_{i}"):
-                    del edited_quiz[i]
-                    # Also remove validation result if exists
-                    if "validation_results" in st.session_state and i in st.session_state["validation_results"]:
-                        del st.session_state["validation_results"][i]
-                    edited = True
-                    st.rerun()
+                    st.session_state[confirm_flag_key] = True
+
+                if st.session_state.get(confirm_flag_key):
+                    st.warning(f"Are you sure you want to delete question {question['number']}?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("Yes, delete", key=f"yes_del_{i}"):
+                            # Perform deletion
+                            del edited_quiz[i]
+                            # Re-number remaining questions to keep sequence clean
+                            for idx, q in enumerate(edited_quiz):
+                                q["number"] = idx + 1
+                            # Persist to session state immediately
+                            st.session_state["structured_quiz"] = edited_quiz
+                            # Remove any stored validation for this and subsequent indices
+                            if "validation_results" in st.session_state:
+                                st.session_state["validation_results"] = {
+                                    new_idx: res for new_idx, res in enumerate([
+                                        st.session_state["validation_results"].get(old_idx)
+                                        for old_idx in sorted(st.session_state["validation_results"].keys())
+                                    ]) if res is not None
+                                }
+                            # Clear confirm flag and refresh
+                            st.session_state.pop(confirm_flag_key, None)
+                            st.success("Question deleted.")
+                            st.rerun()
+                    with c2:
+                        if st.button("No, keep it", key=f"no_del_{i}"):
+                            st.session_state.pop(confirm_flag_key, None)
+                            st.experimental_rerun()
         
         # Add a new question (ADD NEW QUESTION BUTTON)
         if st.button("Add New Question"):
@@ -1164,6 +1251,9 @@ MOTIVAZIONE: [Breve spiegazione]
                 ],
                 "correct_answer": "A"
             })
+            # Re-number just in case previous operations left gaps
+            for idx, q in enumerate(edited_quiz):
+                q["number"] = idx + 1
             
             # Update session state and refresh
             st.session_state["structured_quiz"] = edited_quiz
@@ -1601,7 +1691,7 @@ MOTIVAZIONE: [Breve spiegazione]
 
                 # Determine question type for the API
                 api_question_type = "multiple_choice" if question_type == "Multiple Choice" else "open_ended"
-                
+
                 feedback = self.feedback_generator.generate_feedback(
                     question, 
                     correct_answer, 
