@@ -192,6 +192,67 @@ class QuizGenerator:
             """
             )
 
+    def detect_text_language(self, text: str) -> str:
+        """
+        Detect the predominant language of the input text.
+        
+        Args:
+            text: The input text to analyze
+            
+        Returns:
+            'en' for English, 'it' for Italian
+        """
+        # Common indicator words for each language
+        italian_indicators = ['il', 'la', 'di', 'che', 'è', 'sono', 'della', 'del', 'una', 'un']
+        english_indicators = ['the', 'is', 'are', 'was', 'were', 'of', 'and', 'to', 'in', 'a']
+        
+        text_lower = text.lower()
+        
+        # Count occurrences of indicator words
+        italian_score = sum(text_lower.count(f' {word} ') for word in italian_indicators)
+        english_score = sum(text_lower.count(f' {word} ') for word in english_indicators)
+        
+        # Return detected language
+        return 'en' if english_score > italian_score else 'it'
+
+    def _get_language_instructions_5w(self, detected_lang: str) -> dict:
+        """
+        Get language-specific instructions for 5W quiz generation.
+        
+        Args:
+            detected_lang: Detected language code ('en' or 'it')
+            
+        Returns:
+            Dictionary with 'task_instruction' and 'language_rules'
+        """
+        if detected_lang == 'en':
+            return {
+                "task_instruction": "Create a comprehension quiz in ENGLISH that assesses understanding of the 5Ws in the text.",
+                "language_rules": """LANGUAGE RULE (MANDATORY):
+- The input text is in ENGLISH, so the quiz MUST be generated in ENGLISH.
+- DO NOT translate the text content.
+- Keep proper nouns and citations exactly as in the text.
+- Exception: Keep these Italian structural labels:
+  * "[Scelta Multipla]" and "[Risposta Aperta]"
+  * "✅ Risposta corretta:" and "✅ Risposta:"
+  * Markers A) B) C) D)
+  Everything else (questions, options, explanations) must be in ENGLISH."""
+            }
+        else:  # Italian
+            return {
+                "task_instruction": "Crea un quiz di comprensione in italiano che valuti la comprensione delle 5W nel testo.",
+                "language_rules": """Ruolo lingua (OBBLIGATORIO):
+- Il testo è in italiano, quindi il quiz deve essere generato in italiano.
+- NON tradurre i contenuti del testo: il quiz generato deve essere sempre nella lingua originale del testo.
+- NON mescolare lingue all'interno dello stesso quiz.
+- Conserva i nomi propri e le citazioni esattamente come nel testo.
+- Mantieni SEMPRE in italiano le etichette di struttura necessarie al sistema:
+  * "[Scelta Multipla]" e "[Risposta Aperta]"
+  * "✅ Risposta corretta:" e "✅ Risposta:"
+  * I marcatori A) B) C) D)
+  Tutto il resto (testo delle domande, opzioni, eventuali frasi) deve essere nella lingua del testo."""
+            }
+
     def create_prompt(
         self, text: str, annotations: Dict[str, List[str]], tag_type: str = "5W"
     ) -> str:
@@ -273,7 +334,9 @@ NON aggiungere spiegazioni o commenti extra al quiz.
 
         # Choose generation method based on tag type
         if tag_type == "5W":
-            return self._generate_5w_quiz(text, annotations)
+            # Detect language for 5W quizzes
+            detected_lang = self.detect_text_language(text)
+            return self._generate_5w_quiz(text, annotations, detected_lang)
         elif tag_type == "Thesis":
             return self._generate_thesis_quiz(text, annotations)
         elif tag_type == "Argument":
@@ -295,8 +358,15 @@ NON aggiungere spiegazioni o commenti extra al quiz.
             max_tokens=2048
         )
 
-    def _generate_5w_quiz(self, text: str, annotations: Dict[str, List[str]]) -> str:
-        """Generate a quiz specifically for 5W annotations."""
+    def _generate_5w_quiz(self, text: str, annotations: Dict[str, List[str]], detected_lang: str = None) -> str:
+        """Generate a quiz specifically for 5W annotations with language detection."""
+        # Auto-detect language if not provided
+        if detected_lang is None:
+            detected_lang = self.detect_text_language(text)
+        
+        # Get language-specific instructions
+        lang_instructions = self._get_language_instructions_5w(detected_lang)
+        
         annotation_examples = "\n".join(
             [f"- {tag}: {', '.join(items)}" for tag, items in annotations.items()]
         )
@@ -310,7 +380,7 @@ ANNOTAZIONI 5W:
 {annotation_examples}
 
 ISTRUZIONI:
-Crea un quiz di comprensione in italiano che valuti la comprensione delle 5W nel testo. Il quiz deve includere:
+{lang_instructions["task_instruction"]} Il quiz deve includere:
 
 1. **2 domande a scelta multipla** (4 opzioni ciascuna):
    - Una domanda su CHI (Who) o COSA (What)
@@ -355,17 +425,7 @@ FORMATO RICHIESTO:
 NON usare un modello fisso di domande. Crea domande originali che si adattano specificamente al testo fornito.
 NON aggiungere spiegazioni o commenti extra al quiz.
 
-Ruolo lingua (OBBLIGATORIO):
-- Se il testo è in italiano, il quiz generato deve essere in italiano. Se il testo è in inglese, il quiz generato deve essere in inglese.
-- Se il testo è misto, scegli la lingua predominante; se l’equilibrio è incerto, usa l’italiano.
-- NON tradurre i contenuti del testo: il quiz generato deve essere sempre nella lingua originale del testo.
-- NON mescolare lingue all’interno dello stesso quiz.
-- Conserva i nomi propri e le citazioni esattamente come nel testo.
-- Eccezione: mantieni SEMPRE in italiano le etichette di struttura necessarie al sistema:
-  * "[Scelta Multipla]" e "[Risposta Aperta]"
-  * "✅ Risposta corretta:" e "✅ Risposta:"
-  * I marcatori A) B) C) D)
-  Tutto il resto (testo delle domande, opzioni, eventuali frasi) deve essere nella lingua del testo.
+{lang_instructions["language_rules"]}
 """
 
         return self.openrouter_client.generate(
@@ -803,7 +863,7 @@ class LindaTestEvalApp:
     def __init__(self):
         """Initialize the application."""
         st.set_page_config(
-            page_title="Linda Test Eval 3.0 - OpenRouter Edition",
+            page_title="Linda - AI Assessment Educational Platform",
             page_icon="📚",
             layout="wide"
         )
@@ -1286,7 +1346,7 @@ MOTIVAZIONE: [Breve spiegazione]
 
     def run(self):
         """Run the Streamlit application."""
-        st.title("Linda Test Eval 3.0 - OpenRouter Edition")
+        st.title("Linda - AI Assessment Educational Platform")
         st.markdown("### Upload annotated text and generate comprehension quizzes")
 
         # Dynamic status message showing current OpenRouter status and selected model
@@ -1369,8 +1429,7 @@ MOTIVAZIONE: [Breve spiegazione]
             st.info(
                 "This tool helps teachers create comprehension quizzes based on "
                 "annotated texts. Upload a PDF and the corresponding annotations CSV "
-                "to generate quizzes for your students.\n\n"
-                "This version uses OpenRouter to access AI models in the cloud."
+                "to generate quizzes for your students."
             )
 
             # OpenRouter status and setup
