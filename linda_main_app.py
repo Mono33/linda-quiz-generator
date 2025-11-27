@@ -656,16 +656,46 @@ MOTIVAZIONE: [Breve spiegazione]
             ("quiz", ""), ("editing_quiz", False), ("structured_quiz", []),
             ("extracted_text", ""), ("grouped_annotations", {}), ("use_example", False),
             ("tag_type", "5W"), ("uploaded_pdf_bytes", None), ("uploaded_annotations_bytes", None),
-            ("model_name", "mistralai/mistral-7b-instruct"), ("original_quiz_backup", None)
+            ("model_name", "mistralai/mistral-7b-instruct"), ("original_quiz_backup", None),
+            ("app_mode", "Teacher")  # New: App mode selector
         ]:
             if key not in st.session_state:
                 st.session_state[key] = default
             
-        # Show editor if editing
+        # Show editor if editing (Teacher Mode only)
         if st.session_state.get("editing_quiz", False):
             self.show_quiz_editor()
             return
 
+        # Mode selector in sidebar
+        with st.sidebar:
+            st.header("🎯 Mode Selection")
+            app_mode = st.radio(
+                "Select Mode:",
+                ["👨‍🏫 Teacher Mode", "👨‍🎓 Student Mode"],
+                index=0 if st.session_state["app_mode"] == "Teacher" else 1,
+                help="Teacher Mode: Create quizzes | Student Mode: AI-guided annotation practice"
+            )
+            st.session_state["app_mode"] = "Teacher" if "Teacher" in app_mode else "Student"
+            
+            st.markdown("---")
+        
+        # Route to appropriate mode
+        if st.session_state["app_mode"] == "Teacher":
+            self.run_teacher_mode()
+        else:
+            self.run_student_mode()
+    
+    def run_teacher_mode(self):
+        """Run the teacher mode (quiz generation and management)."""
+        # Get API key for status display
+        api_key = None
+        try:
+            api_key = st.secrets["OPENROUTER_API_KEY"]
+        except Exception:
+            # If secrets aren't available, use environment variable
+            api_key = os.getenv("OPENROUTER_API_KEY")
+        
         # Sidebar configuration
         with st.sidebar:
             st.header("Configuration")
@@ -1111,6 +1141,269 @@ MOTIVAZIONE: [Breve spiegazione]
                     options=options if question_type == "Multiple Choice" else None
                 )
                 st.info(feedback)
+    
+    def run_student_mode(self):
+        """Run the student mode (AI-guided annotation practice)."""
+        from student_activities import AnnotationAssistant
+        
+        st.header("🎓 Student Mode: AI-Guided Annotation Practice")
+        st.markdown("""
+        Welcome to the annotation practice area! Here you can:
+        - Upload a text (PDF)
+        - Practice identifying and annotating key elements
+        - Get AI hints and real-time feedback
+        - Export your annotations
+        """)
+        
+        # Sidebar configuration for student mode
+        with st.sidebar:
+            st.header("Configuration")
+            
+            # Tag type selection (same as teacher mode but for learning)
+            current_internal = st.session_state.get("tag_type", "5W")
+            current_display = TAG_TYPE_INTERNAL_TO_DISPLAY.get(current_internal, current_internal)
+            display_options = list(TAG_TYPE_DISPLAY_TO_INTERNAL.keys())
+            current_index = display_options.index(current_display) if current_display in display_options else 0
+            
+            tag_type_display = st.selectbox(
+                "Annotation Type", display_options, index=current_index,
+                help="Select what type of elements you want to practice identifying"
+            )
+            tag_type_internal = TAG_TYPE_DISPLAY_TO_INTERNAL[tag_type_display]
+            st.session_state["tag_type"] = tag_type_internal
+            
+            # AI help level
+            help_level = st.select_slider(
+                "AI Help Level",
+                options=["Low", "Medium", "High"],
+                value="Medium",
+                help="How much assistance you want from the AI tutor"
+            )
+            
+            # Model selection
+            st.subheader("AI Tutor Settings")
+            model_options = {
+                "openai/gpt-4o-mini": "GPT-4o Mini (Recommended)",
+                "openai/gpt-4o": "GPT-4o",
+                "anthropic/claude-3.5-haiku": "Claude 3.5 Haiku",
+                "mistralai/mistral-7b-instruct": "Mistral 7B"
+            }
+            
+            current_model = st.session_state.get("model_name", "openai/gpt-4o-mini")
+            model_name = st.selectbox(
+                "Select AI Model",
+                options=list(model_options.keys()),
+                format_func=lambda x: model_options[x],
+                index=list(model_options.keys()).index(current_model) if current_model in model_options else 0
+            )
+            st.session_state["model_name"] = model_name
+            
+            st.markdown("---")
+            st.subheader("About Student Mode")
+            st.info("""
+            This mode helps you learn to annotate texts with AI guidance.
+            
+            **How it works:**
+            1. Upload a PDF text
+            2. Select text segments
+            3. Choose annotation tags
+            4. Get AI feedback
+            5. Export your work
+            """)
+        
+        # Main content area
+        st.subheader("📄 Upload Your Text")
+        
+        # File upload
+        uploaded_file = st.file_uploader(
+            "Upload PDF to practice annotation",
+            type=["pdf"],
+            help="Upload a PDF document to practice annotating"
+        )
+        
+        # Example data option
+        use_example = st.checkbox(
+            "Use example text",
+            help="Load an example text to get started quickly"
+        )
+        
+        # Process PDF
+        text = ""
+        if uploaded_file or use_example:
+            if use_example:
+                # Use example PDF from docs
+                try:
+                    pdf_path = "docs/example.pdf"
+                    text = self.pdf_extractor.extract_text(pdf_path)
+                    st.success("✅ Example text loaded successfully!")
+                except Exception as e:
+                    st.error(f"Error loading example: {str(e)}")
+            elif uploaded_file:
+                # Save uploaded file to temporary location
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
+                    temp_pdf.write(uploaded_file.read())
+                    pdf_path = temp_pdf.name
+                
+                text = self.pdf_extractor.extract_text(pdf_path)
+                st.success("✅ Text extracted successfully!")
+            
+            if text:
+                # Initialize annotation assistant
+                assistant = AnnotationAssistant(model_name=model_name)
+                
+                # Initialize session state for annotations
+                if "student_annotations" not in st.session_state:
+                    st.session_state["student_annotations"] = []
+                
+                # Display text with annotation interface
+                st.subheader("📖 Text to Annotate")
+                
+                # Show text in expandable section
+                with st.expander("View Full Text", expanded=True):
+                    st.markdown(f"```\n{text[:2000]}{'...' if len(text) > 2000 else ''}\n```")
+                
+                st.markdown("---")
+                
+                # Annotation interface
+                st.subheader("✏️ Create Annotation")
+                
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    # Text selection (simplified for MVP)
+                    selected_text = st.text_area(
+                        "Select and paste text segment to annotate:",
+                        height=100,
+                        placeholder="Copy and paste the text segment you want to annotate here...",
+                        help="Select a portion of the text above and paste it here"
+                    )
+                
+                with col2:
+                    # Tag selection
+                    tag_type = st.session_state["tag_type"]
+                    
+                    # Get available tags for selected type
+                    if tag_type == "5W":
+                        available_tags = ["Who", "What", "When", "Where", "Why"]
+                    elif tag_type == "Argument":
+                        available_tags = ["Thesis", "Antithesis", "Argument", "Counterargument", "Conclusion"]
+                    elif tag_type == "Thesis":
+                        available_tags = ["Thesis"]
+                    else:  # Connective
+                        available_tags = ["Connective"]
+                    
+                    specific_tag = st.selectbox(
+                        "Select Tag:",
+                        options=available_tags,
+                        help="Choose what type of element this is"
+                    )
+                
+                # Action buttons
+                col_btn1, col_btn2, col_btn3 = st.columns(3)
+                
+                with col_btn1:
+                    get_hint = st.button("💡 Get AI Hint", use_container_width=True)
+                
+                with col_btn2:
+                    validate = st.button("✓ Validate & Save", use_container_width=True)
+                
+                with col_btn3:
+                    get_example = st.button("📚 See Example", use_container_width=True)
+                
+                # Handle actions
+                if get_hint:
+                    with st.spinner("🤔 AI is thinking..."):
+                        hint = assistant.get_hint(
+                            text=text,
+                            tag_type=tag_type,
+                            specific_tag=specific_tag,
+                            help_level=help_level.lower(),
+                            language="it"
+                        )
+                        st.info(f"💡 **AI Hint:**\n\n{hint}")
+                
+                if get_example:
+                    with st.spinner("📚 Loading example..."):
+                        example = assistant.get_example(
+                            tag_type=tag_type,
+                            specific_tag=specific_tag,
+                            language="it"
+                        )
+                        st.success(f"📚 **Example:**\n\n{example}")
+                
+                if validate and selected_text:
+                    with st.spinner("🔍 Validating your annotation..."):
+                        validation = assistant.validate_annotation(
+                            selected_text=selected_text,
+                            tag_type=tag_type,
+                            specific_tag=specific_tag,
+                            full_text=text,
+                            language="it"
+                        )
+                        
+                        # Show feedback
+                        if validation["is_correct"] == True:
+                            st.success("✅ Great job! Your annotation is correct!")
+                        elif validation["is_correct"] == False:
+                            st.warning("⚠️ Not quite right. Let's review this together.")
+                        else:
+                            st.info("📝 Your annotation is partially correct.")
+                        
+                        st.markdown(validation["feedback"])
+                        
+                        # Ask metacognitive question
+                        meta_question = assistant.generate_metacognitive_question(
+                            selected_text=selected_text,
+                            specific_tag=specific_tag,
+                            language="it"
+                        )
+                        st.markdown(f"**🤔 Think about this:** {meta_question}")
+                        
+                        # Save annotation
+                        st.session_state["student_annotations"].append({
+                            "text": selected_text,
+                            "tag": specific_tag,
+                            "is_correct": validation["is_correct"],
+                            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+                        })
+                
+                # Show current annotations
+                if st.session_state["student_annotations"]:
+                    st.markdown("---")
+                    st.subheader("📝 Your Annotations")
+                    
+                    for i, annotation in enumerate(st.session_state["student_annotations"]):
+                        status_icon = "✅" if annotation["is_correct"] == True else "⚠️" if annotation["is_correct"] == False else "📝"
+                        with st.expander(f"{status_icon} Annotation {i+1}: {annotation['tag']}"):
+                            st.markdown(f"**Text:** {annotation['text'][:100]}...")
+                            st.markdown(f"**Tag:** {annotation['tag']}")
+                            st.markdown(f"**Time:** {annotation['timestamp']}")
+                    
+                    # Export button
+                    if st.button("💾 Export Annotations as CSV"):
+                        import csv
+                        import io
+                        
+                        output = io.StringIO()
+                        writer = csv.DictWriter(output, fieldnames=["text", "tag", "timestamp"])
+                        writer.writeheader()
+                        for annotation in st.session_state["student_annotations"]:
+                            writer.writerow({
+                                "text": annotation["text"],
+                                "tag": annotation["tag"],
+                                "timestamp": annotation["timestamp"]
+                            })
+                        
+                        csv_data = output.getvalue()
+                        st.download_button(
+                            label="📥 Download CSV",
+                            data=csv_data,
+                            file_name=f"annotations_student_{time.strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv"
+                        )
+        
+        else:
+            st.info("👆 Upload a PDF or use the example text to get started!")
 
 
 def main():
